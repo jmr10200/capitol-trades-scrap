@@ -69,12 +69,12 @@ def crawling_stock_data(df, politician_df):
 
 
 # 페이지 마다 데이터 추출
-def page_data(page, last_page):
+def page_data(page, page_size):
     try:
         # url = 'https://www.capitoltrades.com/politicians?page={page}'.format(page=page
         # pageSize 주의 필요
-        url = 'https://bff.capitoltrades.com/politicians?page={page}&pageSize={last_page}&' \
-               'metric=dateLastTraded&metric=countTrades&metric=countIssuers&metric=volume'.format(page=page, last_page=last_page)
+        url = 'https://bff.capitoltrades.com/politicians?page={page}&pageSize={page_size}&' \
+               'metric=dateLastTraded&metric=countTrades&metric=countIssuers&metric=volume'.format(page=page, page_size=page_size)
         res = requests.get(url)
         json_data = res.json()
 
@@ -92,13 +92,13 @@ def page_data(page, last_page):
 
 
 # 크롤링 실행
-def crawling_politician_data(df, last_page):
+def crawling_politician_data(df, last_page, page_size):
     try:
         # FIXME +1 부터 추출 되도록 리팩토링
         pg = 1
         while pg <= last_page:
             logger.info(str(pg) + '페이지 데이터를 추출합니다.')
-            page_df = page_data(pg, last_page)
+            page_df = page_data(pg, page_size)
             if df is None:
                 df = page_df
             else:
@@ -175,8 +175,8 @@ def execute():
         # 총 페이지 수 산출
         if not isinstance(soup.select_one('div.pagination'), type(None)):
             view_count = int(soup.select_one('div.pagination').p.text.split(' ')[-4])
-            total_politician = int(soup.select_one('div.pagination').p.text.split(' ')[-2])
-            last_page = math.ceil(total_politician/view_count)
+            page_size = int(soup.select_one('div.pagination').p.text.split(' ')[-2])
+            last_page = math.ceil(page_size/view_count)
         else:
             last_page = 1
 
@@ -185,7 +185,7 @@ def execute():
         logger.info('[..ing] crawling politician data')
         # politician data
         politician_df = None
-        politician_df = crawling_politician_data(politician_df, last_page)
+        politician_df = crawling_politician_data(politician_df, last_page, page_size)
         logger.info('success crawling politician data')
 
         logger.info('[..ing] crawling stock data')
