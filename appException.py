@@ -3,7 +3,7 @@ AppException
 """
 
 
-class StockCrawlingException(Exception):
+class AppException(Exception):
     def __init__(self, msg_type, msg):
         self.msg_type = msg_type
         self.msg = msg
