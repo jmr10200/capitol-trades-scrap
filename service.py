@@ -6,26 +6,50 @@ from datetime import datetime
 
 import appException
 import loggerConfig as loggerConfig
-import re
 import os
-import sys
 import math
 
-# 상세 데이터 아래의 url 에서 json ID 변경으로 데이터 취득 가능
-# https://www.capitoltrades.com/_next/data/UPA0FyPj9azKpAA871BFM/en/politicians/W000804.json?id=W000804
+
+def stock_page_data(page, page_size, politicianId):
+    url = 'https://bff.capitoltrades.com/trades?page={page}&pageSize={page_size}&politician={politicianId}' \
+        .format(page=page, page_size=page_size, politicianId=politicianId)
+    res = requests.get(url)
+    json_data = res.json()
+
+    # FIXME 데이터 확인 추출
+    # df['stats.dateLastTraded']
+    df = pd.json_normalize(json_data['data'])
+
+    return df
 
 
 # 페이지 마다 데이터 추출
-def stock_page_data(politicianId):
+def politician_stock_data(politicianId, page_size):
     try:
-        url = 'https://www.capitoltrades.com/_next/data/UPA0FyPj9azKpAA871BFM/' \
-              'en/politicians/{politicianId}.json?id={politicianId}'.format(politicianId=politicianId)
-        res = requests.get(url)
+        # 페이지 수 산출
+        page_url = 'https://bff.capitoltrades.com/trades/digest?' \
+                  'politician={politicianId}&metric=countTrades&metric=countFilings&' \
+                  'metric=volume&metric=countPoliticians&metric=countIssuers'.format(politicianId=politicianId)
+        res = requests.get(page_url)
         json_data = res.json()
 
-        # FIXME 데이터 확인 추출
-        # TODO JSON 데이터 확인 필요함
-        df = pd.json_normalize(json_data['queries'])
+        # 총 페이지 수 산출
+        if json_data['data']['countTrades'] > page_size:
+            count_Trades = int(json_data['data']['countTrades'])
+            last_page = math.ceil(count_Trades/page_size)
+        else:
+            last_page = 1  # 50건씩 페이징, 50건 이하면 1페이지만 존재
+
+        df = None
+        pg = 1
+        while pg <= last_page:
+            logger.info('[' + politicianId + '] 의' + str(pg) + '페이지 주식 데이터를 추출합니다.')
+            stock_page_df = stock_page_data(pg, page_size, politicianId)
+            if df is None:
+                df = stock_page_df
+            else:
+                df = pd.concat([df, stock_page_df])
+            pg += 1
 
         return df
 
@@ -36,18 +60,14 @@ def stock_page_data(politicianId):
     return None
 
 
-def crawling_stock_data(df, politician_df):
+def crawling_stock_data(df, politician_df, page_size):
     try:
         # ID
         politicianId = politician_df['uuid']
-        # stock_page_data
-        url = 'https://www.capitoltrades.com/_next/data/UPA0FyPj9azKpAA871BFM/' \
-              'en/politicians/{politicianId}.json?id={politicianId}'.format(politicianId=politicianId)
-        res = requests.get(url)
-        json_data = res.json()
 
         for pId in politicianId:
-            page_df = stock_page_data(pId)
+            # politicianId 로 루프, 전체 페이지 취득
+            page_df = politician_stock_data(pId, page_size)
             if df is None:
                 df = page_df
             else:
@@ -71,15 +91,11 @@ def crawling_stock_data(df, politician_df):
 # 페이지 마다 데이터 추출
 def page_data(page, page_size):
     try:
-        # url = 'https://www.capitoltrades.com/politicians?page={page}'.format(page=page
-        # pageSize 주의 필요
         url = 'https://bff.capitoltrades.com/politicians?page={page}&pageSize={page_size}&' \
                'metric=dateLastTraded&metric=countTrades&metric=countIssuers&metric=volume'.format(page=page, page_size=page_size)
         res = requests.get(url)
         json_data = res.json()
 
-        # FIXME 데이터 확인 추출
-        # df['stats.dateLastTraded']
         df = pd.json_normalize(json_data['data'])
 
         return df
@@ -94,7 +110,6 @@ def page_data(page, page_size):
 # 크롤링 실행
 def crawling_politician_data(df, last_page, page_size):
     try:
-        # FIXME +1 부터 추출 되도록 리팩토링
         pg = 1
         while pg <= last_page:
             logger.info(str(pg) + '페이지 데이터를 추출합니다.')
@@ -124,11 +139,6 @@ def crawling_politician_data(df, last_page, page_size):
         msg_type = '[crawling stock data failed] '
         msg = '데이터 추출에 실패하였습니다.'
         raise appException(msg_type, msg)
-    # return None
-
-
-# politician 크롤링
-# def politician():
 
 
 def print_csv(df):
@@ -157,47 +167,80 @@ def print_csv(df):
         raise appException(msg_type, msg)
 
 
+def print_stock(df):
+    try:
+        # FIXME 불 필요한 행 삭제 (fullName) 확인 필요
+        df.drop(
+            ['_txId', '_assetId', '_issuerId', 'filingDate', 'txTypeExtended', 'hasCapitalGains', 'owner', 'chamber',
+             'size', 'sizeRangeHigh', 'sizeRangeLow', 'filingId', 'filingURL', 'comment', 'committees', 'labels',
+             'asset.assetType', 'asset.assetTicker', 'asset.instrument', 'issuer._stateId', 'issuer.c2iq',
+             'issuer.country', 'issuer.sector', 'politician._stateId', 'politician.chamber', 'politician.dob',
+             'politician.firstName', 'politician.gender', 'politician.lastName', 'politician.nickname',
+             'politician.party'], axis=1, inplace=True)
+
+        # FIXME 저장할때 수집일, 갱신일
+
+        # 파일명 : capitol-trades_yyyy-mm-dd.csv
+        directory = '../tmp/capitol-trades-csv/stock'
+        os.makedirs(directory, exist_ok=True)
+        # 현재시간 (UTC X)
+        filename = 'capitol-trades_stock_' + datetime.now().strftime('%Y-%m-%d %Hh%Mm%Ss')
+        # CSV 파일 출력
+        df.to_csv(directory + '/{filename}.csv'.format(filename=filename), index=False)
+        logger.info('=> print : {filename}.csv'.format(filename=filename))
+    except Exception:
+        msg_type = '[csv file print failed] '
+        msg = 'csv 파일 출력에 실패하였습니다.'
+        raise appException(msg_type, msg)
+
+
 def execute():
     # 実行
     logger.info('[start] stock crawling execute')
     try:
         # TODO validation check 필요?
-        page = 1
 
-        url = 'https://www.capitoltrades.com/politicians?page={page}'.format(page=page)
-
+        url = 'https://www.capitoltrades.com/politicians'
         res = requests.get(url)
 
         # res.status_code
         html = res.text
         soup = BeautifulSoup(html, 'html.parser')
 
-        # 총 페이지 수 산출
+        # 총 페이지 수 산출 (가장 많은 페이지 보기로 확인)
         if not isinstance(soup.select_one('div.pagination'), type(None)):
-            view_count = int(soup.select_one('div.pagination').p.text.split(' ')[-4])
-            page_size = int(soup.select_one('div.pagination').p.text.split(' ')[-2])
-            last_page = math.ceil(page_size/view_count)
+            count_politician = int(soup.select_one('div.pagination').p.text.split(' ')[-2])
+            page_size = int(soup.select_one('div.page-size').contents[-1].text)
+            last_page = math.ceil(count_politician/page_size)
         else:
             last_page = 1
 
         logger.info('[start] 크롤링을 시작합니다.')
-
+        startTime = datetime.now()  # 시작 시간
         logger.info('[..ing] crawling politician data')
         # politician data
         politician_df = None
         politician_df = crawling_politician_data(politician_df, last_page, page_size)
         logger.info('success crawling politician data')
+        endTime = datetime.now()  # 종료 시간
+        result_t = endTime - startTime
+        resultTime = '(hh:mm:ss.ms) {}'.format(result_t)
+        logger.info('crawling stock data result time = ' + resultTime)
 
         logger.info('[..ing] crawling stock data')
         # stock data by politician
         stock_df = None
-        stock_df = crawling_stock_data(stock_df, politician_df)
+        # FIXME 확인중
+        stock_df = crawling_stock_data(stock_df, politician_df, page_size)
+        endTime = datetime.now()  # 종료 시간
+        result_t = endTime - startTime
+        resultTime = '(hh:mm:ss.ms) {}'.format(result_t)
+        logger.info('crawling stock data result time = ' + resultTime)
 
         logger.info('[end] 크롤링이 완료되었습니다.')
 
         # TODO DB 저장
         # TODO 확인할 내용
-        # 간단 아니잖아 시발;
         # 1. UUID : json 데이터 보면 _politicianId 를 얻을 수 있다. 그대로 사용
         # 2. DB 항목명 : stateId 으로 데이터 제공됨 -> state name 로 표기하고 싶은가?
         # 3. party (정당) / state (지역) 인데 이걸 다 party 라는 항목에 넣고 싶은가?
@@ -208,6 +251,7 @@ def execute():
         # CSV 파일 출력
         logger.info('[start] csv 파일 출력을 시작합니다.')
         print_csv(politician_df)
+        print_stock(stock_df)
         logger.info('[end] csv 파일 출력이 완료되었습니다.')
 
         logger.info('[end] stock crawling finished')
