@@ -8,14 +8,14 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 # log format : [INFO][yyyy/MM/dd HH:mm:ss] message
 formatter = logging.Formatter('[%(levelname)s][%(asctime)s][%(process)s] %(message)s')
-# log streamの出力設定 : StreamHandler
+# log stream 출력 설정 : StreamHandler
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 # log file : FileHandler
 date = datetime.now().strftime('%Y-%m-%d')
-directory = '../tmp/mg-log'
+directory = '../tmp/capitol-trades-log'
 os.makedirs(directory, exist_ok=True)
-file_handler = logging.FileHandler(directory + '/stock_{date}.log'.format(date=date))
+file_handler = logging.FileHandler(directory + '/capital-trades_{date}.log'.format(date=date))
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
