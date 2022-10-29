@@ -19,7 +19,14 @@ def stock_page_data(page, page_size, politicianId):
     # FIXME 데이터 확인 추출
     # df['stats.dateLastTraded']
     df = pd.json_normalize(json_data['data'])
-
+    # FIXME 불 필요한 데이터 삭제 (fullName) 확인 필요
+    df.drop(
+        ['_txId', '_assetId', '_issuerId', 'filingDate', 'txTypeExtended', 'hasCapitalGains', 'owner', 'chamber',
+         'size', 'sizeRangeHigh', 'sizeRangeLow', 'filingId', 'filingURL', 'comment', 'committees', 'labels',
+         'asset.assetType', 'asset.assetTicker', 'asset.instrument', 'issuer._stateId', 'issuer.c2iq',
+         'issuer.country', 'issuer.sector', 'politician._stateId', 'politician.chamber', 'politician.dob',
+         'politician.firstName', 'politician.gender', 'politician.lastName', 'politician.nickname',
+         'politician.party'], axis=1, inplace=True)
     return df
 
 
@@ -32,10 +39,10 @@ def politician_stock_data(politicianId, page_size):
                   'metric=volume&metric=countPoliticians&metric=countIssuers'.format(politicianId=politicianId)
         res = requests.get(page_url)
         json_data = res.json()
-
+        # 총 거래수
+        count_Trades = int(json_data['data']['countTrades'])
         # 총 페이지 수 산출
         if json_data['data']['countTrades'] > page_size:
-            count_Trades = int(json_data['data']['countTrades'])
             last_page = math.ceil(count_Trades/page_size)
         else:
             last_page = 1  # 50건씩 페이징, 50건 이하면 1페이지만 존재
@@ -43,7 +50,6 @@ def politician_stock_data(politicianId, page_size):
         df = None
         pg = 1
         while pg <= last_page:
-            logger.info('[' + politicianId + '] 의' + str(pg) + '페이지 주식 데이터를 추출합니다.')
             stock_page_df = stock_page_data(pg, page_size, politicianId)
             if df is None:
                 df = stock_page_df
@@ -51,6 +57,7 @@ def politician_stock_data(politicianId, page_size):
                 df = pd.concat([df, stock_page_df])
             pg += 1
 
+        logger.info('[' + politicianId + '] stock transaction data total count = ' + str(count_Trades))
         return df
 
     except Exception:
@@ -74,10 +81,17 @@ def crawling_stock_data(df, politician_df, page_size):
                 df = pd.concat([df, page_df])
 
         # FIXME 컬럼명 변경 : 왜 이따위로 지어놨나 확인
-        # df = df.rename(columns={
-        #     '_politicianId': 'uuid',
-        #     'stats.volume': 'volume'
-        # })
+        df = df.rename(columns={
+            '_politicianId': 'uuid',
+            'issuer.issuerName': 'name',
+            'issuer.issuerTicker': 'code',
+            'pubDate': 'publishedAt',
+            'txDate': 'trade',
+            'reportingGap': 'fieldAfter',
+            'txType': 'tradeType',
+            'value': 'volume',
+            'price': 'price'
+        })
 
         return df
 
@@ -112,13 +126,16 @@ def crawling_politician_data(df, last_page, page_size):
     try:
         pg = 1
         while pg <= last_page:
-            logger.info(str(pg) + '페이지 데이터를 추출합니다.')
             page_df = page_data(pg, page_size)
             if df is None:
                 df = page_df
             else:
                 df = pd.concat([df, page_df])
             pg += 1
+
+        # FIXME 불 필요한 행 삭제 (fullName) 확인 필요
+        df.drop(['partyOther', 'district', 'nickname', 'middleName', 'fullName', 'dob', 'gender', 'socialFacebook',
+                 'socialTwitter', 'socialYoutube', 'website', 'chamber', 'committees'], axis=1, inplace=True)
 
         # FIXME 컬럼명 변경 : 왜 이따위로 지어놨나 확인
         df = df.rename(columns={
@@ -143,11 +160,8 @@ def crawling_politician_data(df, last_page, page_size):
 
 def print_csv(df):
     try:
-        # FIXME 불 필요한 행 삭제 (fullName) 확인 필요
-        df.drop(['partyOther', 'district', 'nickname', 'middleName', 'fullName', 'dob', 'gender', 'socialFacebook',
-                 'socialTwitter', 'socialYoutube', 'website', 'chamber', 'committees'], axis=1, inplace=True)
-
         # FIXME 저장할때 수집일, 갱신일
+
         # UTC 출력
         df['createdAt'] = datetime.utcnow()
         df['updatedAt'] = datetime.utcnow()
@@ -169,16 +183,8 @@ def print_csv(df):
 
 def print_stock(df):
     try:
-        # FIXME 불 필요한 행 삭제 (fullName) 확인 필요
-        df.drop(
-            ['_txId', '_assetId', '_issuerId', 'filingDate', 'txTypeExtended', 'hasCapitalGains', 'owner', 'chamber',
-             'size', 'sizeRangeHigh', 'sizeRangeLow', 'filingId', 'filingURL', 'comment', 'committees', 'labels',
-             'asset.assetType', 'asset.assetTicker', 'asset.instrument', 'issuer._stateId', 'issuer.c2iq',
-             'issuer.country', 'issuer.sector', 'politician._stateId', 'politician.chamber', 'politician.dob',
-             'politician.firstName', 'politician.gender', 'politician.lastName', 'politician.nickname',
-             'politician.party'], axis=1, inplace=True)
-
         # FIXME 저장할때 수집일, 갱신일
+        df['tUniqueId'] = df['uuid'] + df['publishedAt']
 
         # 파일명 : capitol-trades_yyyy-mm-dd.csv
         directory = '../tmp/capitol-trades-csv/stock'
@@ -195,7 +201,7 @@ def print_stock(df):
 
 
 def execute():
-    # 実行
+    # 실행
     logger.info('[start] stock crawling execute')
     try:
         # TODO validation check 필요?
@@ -221,7 +227,7 @@ def execute():
         # politician data
         politician_df = None
         politician_df = crawling_politician_data(politician_df, last_page, page_size)
-        logger.info('success crawling politician data')
+        logger.info('success crawling politician data = total ' + str(count_politician) + ' politician')
         endTime = datetime.now()  # 종료 시간
         result_t = endTime - startTime
         resultTime = '(hh:mm:ss.ms) {}'.format(result_t)
@@ -230,7 +236,6 @@ def execute():
         logger.info('[..ing] crawling stock data')
         # stock data by politician
         stock_df = None
-        # FIXME 확인중
         stock_df = crawling_stock_data(stock_df, politician_df, page_size)
         endTime = datetime.now()  # 종료 시간
         result_t = endTime - startTime
