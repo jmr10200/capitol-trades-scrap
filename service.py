@@ -172,7 +172,7 @@ def print_politician_csv(df):
         filename = 'capitol-trades_' + datetime.now().strftime('%Y-%m-%d %Hh%Mm%Ss')
         # CSV 파일 출력
         df.to_csv(directory + '/{filename}.csv'.format(filename=filename), index=False)
-        logger.info('{filename}.csv'.format(filename=filename))
+        logger.info('print politician info = {filename}.csv'.format(filename=filename))
     except Exception:
         msg_type = '[csv file print failed] '
         msg = 'csv 파일 출력에 실패하였습니다.'
@@ -190,6 +190,7 @@ def print_stock_csv(df):
         filename = 'capitol-trades_stock_' + datetime.now().strftime('%Y-%m-%d %Hh%Mm%Ss')
         # CSV 파일 출력
         df.to_csv(directory + '/{filename}.csv'.format(filename=filename), index=False)
+        logger.info('print politician stock data = {filename}.csv'.format(filename=filename))
     except Exception:
         msg_type = '[csv file print failed] '
         msg = 'csv 파일 출력에 실패하였습니다.'
