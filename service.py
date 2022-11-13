@@ -19,7 +19,7 @@ def stock_page_data(page, page_size, politicianId):
     # FIXME 데이터 확인 추출
     # df['stats.dateLastTraded']
     df = pd.json_normalize(json_data['data'])
-    # FIXME 불 필요한 데이터 삭제 (fullName) 확인 필요
+    # FIXME 불필요한 데이터 삭제 (fullName) 확인 필요
     df.drop(
         ['_txId', '_assetId', '_issuerId', 'filingDate', 'txTypeExtended', 'hasCapitalGains', 'owner', 'chamber',
          'size', 'sizeRangeHigh', 'sizeRangeLow', 'filingId', 'filingURL', 'comment', 'committees', 'labels',
@@ -80,7 +80,7 @@ def crawling_stock_data(df, politician_df, page_size):
             else:
                 df = pd.concat([df, page_df])
 
-        # FIXME 컬럼명 변경 : 왜 이따위로 지어놨나 확인
+        # FIXME 컬럼명 변경 : 왜 이렇게 지어놨나 ( DB 명칭, 화면표시 명칭 따로 구분이 더 좋지않나)
         df = df.rename(columns={
             '_politicianId': 'uuid',
             'issuer.issuerName': 'name',
@@ -133,24 +133,24 @@ def crawling_politician_data(df, last_page, page_size):
                 df = pd.concat([df, page_df])
             pg += 1
 
-        # FIXME 불 필요한 행 삭제 (fullName) 확인 필요
+        # FIXME 불필요한 행 삭제 (fullName) 확인 필요
         df.drop(['partyOther', 'district', 'nickname', 'middleName', 'fullName', 'dob', 'gender', 'socialFacebook',
                  'socialTwitter', 'socialYoutube', 'website', 'chamber', 'committees'], axis=1, inplace=True)
 
-        # FIXME 컬럼명 변경 : 왜 이따위로 지어놨나 확인
+        # FIXME 컬럼명 변경 : 왜 이렇게 지어놨나 ( DB 명칭, 화면표시 명칭 따로 구분이 더 좋지않나)
         df = df.rename(columns={
-            '_politicianId': 'uuid',
-            '_stateId': 'stateId',
+            '_politicianId': 'uuid',  # json 데이터가 제공하는 _politicianId 를 그대로 사용
+            '_stateId': 'stateId',  # 참고 : state ID 표기 존재함. 해당 사이트에서는 id 이용해서 관리, 화면표시할때 이름표기
+            # FIXME 화면표시 : [ party (정당) / state (지역) ] 인데 이걸 다 party 라는 항목에 넣고 싶은가?
             # 'party': 'party',
-            # 'firstName': 'firstName',
-            # 'lastName': 'firstName',
+            # FIXME 화면표시 : [ firstName + lastName ] 화면표시 그대로 저장하고 싶은가?
+            # firstName, lastName, middleName, fullName 모두 제공됨
             'stats.dateLastTraded': 'lastTrade',
             'stats.countTrades': 'trades',
             'stats.countIssuers': 'issuers',
             'stats.volume': 'volume'
         })
-        # FIXME 업데이트 날짜 추가 createdAt (수집일) , updatedAt (갱신일)
-        # FIXME 수집일, 변경일 : DB 등록시 or 갱신시 적용
+        # FIXME 업데이트 날짜 추가 createdAt (수집일) , updatedAt (갱신일) : DB 등록시 or 갱신시 적용
         return df
     except Exception:
         msg_type = '[crawling stock data failed] '
@@ -158,14 +158,12 @@ def crawling_politician_data(df, last_page, page_size):
         raise appException(msg_type, msg)
 
 
-def print_csv(df):
+def print_politician_csv(df):
     try:
-        # FIXME 저장할때 수집일, 갱신일
-
-        # UTC 출력
-        df['createdAt'] = datetime.utcnow()
-        df['updatedAt'] = datetime.utcnow()
-        # FIXME END
+        # FIXME 시간 : 임의로 UTC 출력 , 형식은 YYYY-MM-ddTHH:mm:ssZ (ISO format)
+        df['createdAt'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        df['updatedAt'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        #  END
 
         # 파일명 : capitol-trades_yyyy-mm-dd.csv
         directory = '../tmp/capitol-trades-csv'
@@ -181,9 +179,8 @@ def print_csv(df):
         raise appException(msg_type, msg)
 
 
-def print_stock(df):
+def print_stock_csv(df):
     try:
-        # FIXME 저장할때 수집일, 갱신일
         df['tUniqueId'] = df['uuid'] + df['publishedAt']
 
         # 파일명 : capitol-trades_yyyy-mm-dd.csv
@@ -193,7 +190,6 @@ def print_stock(df):
         filename = 'capitol-trades_stock_' + datetime.now().strftime('%Y-%m-%d %Hh%Mm%Ss')
         # CSV 파일 출력
         df.to_csv(directory + '/{filename}.csv'.format(filename=filename), index=False)
-        logger.info('=> print : {filename}.csv'.format(filename=filename))
     except Exception:
         msg_type = '[csv file print failed] '
         msg = 'csv 파일 출력에 실패하였습니다.'
@@ -245,18 +241,11 @@ def execute():
         logger.info('[end] 크롤링이 완료되었습니다.')
 
         # TODO DB 저장
-        # TODO 확인할 내용
-        # 1. UUID : json 데이터 보면 _politicianId 를 얻을 수 있다. 그대로 사용
-        # 2. DB 항목명 : stateId 으로 데이터 제공됨 -> state name 로 표기하고 싶은가?
-        # 3. party (정당) / state (지역) 인데 이걸 다 party 라는 항목에 넣고 싶은가?
-        # 4. firstName, lastName, middleName, fullName 모두 주어진다.
-        #    화면상에는 firstName + lastName 으로 표시된다. 화면 그대로 저장하고 싶은가?
-        # 5. 수집일, 갱신일은 DB등록 or csv 출력시 하면됨
 
         # CSV 파일 출력
         logger.info('[start] csv 파일 출력을 시작합니다.')
-        print_csv(politician_df)
-        print_stock(stock_df)
+        print_politician_csv(politician_df)
+        print_stock_csv(stock_df)
         logger.info('[end] csv 파일 출력이 완료되었습니다.')
 
         logger.info('[end] stock crawling finished')
